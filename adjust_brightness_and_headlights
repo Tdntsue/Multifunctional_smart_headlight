@@ -1,0 +1,37 @@
+def adjust_brightness_and_headlights(image_path):
+    global light
+    frame = cv2.imread(image_path)
+    if frame is None:
+        print("無法讀取圖片，請檢查上傳檔案。")
+        return None, None, None, None
+
+    gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mean_brightness = cv2.mean(gray_img)[0]
+
+    dark_threshold = 50
+    medium_threshold = 70
+
+    if mean_brightness < dark_threshold:
+        target_brightness = "高（夜晚，極暗）"
+        light = 1
+    elif mean_brightness < medium_threshold:
+        target_brightness = "中（夜晚，稍暗）"
+        light = 1
+    else:
+        target_brightness = "低（白天）"
+        light = 0
+
+    headlights = detect_headlights(frame, mean_brightness)
+    high_beam = light
+
+    if light == 1 and len(headlights) > 0:
+        high_beam = 0
+        print(f"檢測到 {len(headlights)} 個對向車頭燈，遠光燈已關閉。")
+        for (x, y, w, h, contour) in headlights:
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
+    elif light == 1:
+        print("未檢測到對向車頭燈，遠光燈保持開啟。")
+    else:
+        print("白天或頭燈關閉，無需使用遠光燈。")
+
+    return mean_brightness, light, high_beam, frame, target_brightness
