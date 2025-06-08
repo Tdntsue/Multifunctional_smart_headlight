@@ -1,0 +1,45 @@
+def detect_headlights(frame, mean_brightness):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    if mean_brightness < 70:
+        lower_white = np.array([0, 0, 150]) 
+        upper_white = np.array([180, 80, 255])
+    else:
+        lower_white = np.array([0, 0, 200])
+        upper_white = np.array([255, 20, 255])
+
+    lower_yellow = np.array([10, 50, 100]) 
+    upper_yellow = np.array([40, 255, 255])
+    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask_white = cv2.inRange(hsv, lower_white, upper_white)
+
+    mask = cv2.bitwise_or(mask_yellow, mask_white)
+
+    kernel = np.ones((3, 3), np.uint8)
+    mask_dilated = cv2.dilate(mask, kernel, iterations=2)  
+    mask_eroded = cv2.erode(mask_dilated, kernel, iterations=1)
+
+    try:
+        contours, _ = cv2.findContours(mask_eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    except:
+        _, contours, _ = cv2.findContours(mask_eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    headlight_candidates = []
+    height, width = frame.shape[:2]
+    center_y = height // 2  
+    road_horizon = int(height * 0.8) 
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if 30 < area < 1500:  
+            x, y, w, h = cv2.boundingRect(contour)
+            if h > 0:
+                aspect_ratio = w / h
+                if 0.2 < aspect_ratio < 4.0:  
+                    if abs(y + h/2 - center_y) < height and y + h < road_horizon and x + w/2 < width:
+                        roi = frame[y:y+h, x:x+w]
+                        mean_roi_brightness = cv2.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))[0]
+                        if mean_roi_brightness > 120:
+                            headlight_candidates.append((x, y, w, h, contour))
+
+    return headlight_candidates
