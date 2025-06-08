@@ -1,0 +1,104 @@
+import cv2
+import numpy as np
+from google.colab import files
+from google.colab.patches import cv2_imshow
+
+light = 0
+
+def detect_headlights(frame, mean_brightness):
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    if mean_brightness < 70:
+        lower_white = np.array([0, 0, 200])  
+        upper_white = np.array([180, 50, 255])
+    else:
+        lower_white = np.array([0, 0, 200])
+        upper_white = np.array([255, 20, 255])
+
+    lower_yellow = np.array([15, 80, 150])  
+    upper_yellow = np.array([35, 255, 255])
+    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask_white = cv2.inRange(hsv, lower_white, upper_white)
+
+    mask = cv2.bitwise_or(mask_yellow, mask_white)
+
+    kernel = np.ones((3, 3), np.uint8)
+    mask_dilated = cv2.dilate(mask, kernel, iterations=1)
+    mask_eroded = cv2.erode(mask_dilated, kernel, iterations=1)
+
+    try:
+        contours, _ = cv2.findContours(mask_eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    except:
+        _, contours, _ = cv2.findContours(mask_eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    headlight_candidates = []
+    height, width = frame.shape[:2]
+    center_y = height // 2  
+    road_horizon = int(height * 0.7)  
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if 50 < area < 1200:  
+            x, y, w, h = cv2.boundingRect(contour)
+            if h > 0:
+                aspect_ratio = w / h
+                if 0.3 < aspect_ratio < 3.0:  
+                    if abs(y + h/2 - center_y) < height/2 and y + h < road_horizon and x + w/2 < width*0.8:
+                        roi = frame[y:y+h, x:x+w]
+                        mean_roi_brightness = cv2.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))[0]
+                        if mean_roi_brightness > 180:  
+                            headlight_candidates.append((x, y, w, h, contour))
+
+    return headlight_candidates
+
+def adjust_brightness_and_headlights(image_path):
+    global light
+    frame = cv2.imread(image_path)
+    if frame is None:
+        print("無法讀取圖片，請檢查上傳檔案。")
+        return None, None, None, None
+
+    gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mean_brightness = cv2.mean(gray_img)[0]
+
+    dark_threshold = 50
+    medium_threshold = 70
+
+    if mean_brightness < dark_threshold:
+        target_brightness = "高（夜晚，極暗）"
+        light = 1
+    elif mean_brightness < medium_threshold:
+        target_brightness = "中（夜晚，稍暗）"
+        light = 1
+    else:
+        target_brightness = "低（白天）"
+        light = 0
+
+    headlights = detect_headlights(frame, mean_brightness)
+    high_beam = light
+
+    if light == 1 and len(headlights) > 0:
+        high_beam = 0
+        print(f"檢測到 {len(headlights)} 個對向車頭燈，遠光燈已關閉。")
+        for (x, y, w, h, contour) in headlights:
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
+    elif light == 1:
+        print("未檢測到對向車頭燈，遠光燈保持開啟。")
+    else:
+        print("白天或頭燈關閉，無需使用遠光燈。")
+
+    return mean_brightness, light, high_beam, frame, target_brightness
+
+print("請上傳圖片：")
+uploaded = files.upload()
+image_path = list(uploaded.keys())[0]
+
+mean_brightness, light, high_beam, frame, target_brightness = adjust_brightness_and_headlights(image_path)
+
+if mean_brightness is not None:
+    print(f"平均亮度: {mean_brightness:.2f}")
+    print(f"環境亮度: {target_brightness}")
+    print(f"頭燈狀態: {'開啟' if light == 1 else '關閉'}")
+    print(f"遠光燈狀態: {'開啟' if high_beam == 1 else '關閉'}")
+    cv2_imshow(frame)
